@@ -19,39 +19,61 @@ page = 1
 last_page = 3000
 import time, os, fnmatch, shutil
 
-def get_pics(img_hrefs):
-    car_dir = str(uuid.uuid4())
-    directory = 'pics/' + car_dir + '/'
-    if not os.path.isdir(directory):
-        os.mkdir(directory)
+def reliable_request(href):
+    """
+    catch all connection errors wait and try again
+    return response
+    """
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
+
+    done = False
+    while not done:
+        try:
+            resp = requests.get( href, headers = headers )
+        #except Exception as e:
+        except Exception as e:
+           print('connection error', e)
+           time.sleep(5)
+        else:
+           done = True
+    return resp
+
+def download_pics( img_hrefs, directory ):
+    # downloading pics of the car
     i=0
     for href in img_hrefs:
         print('downloanding :', href)
-        response = requests.get(href)
+        #response = requests.get(href)
+        response = reliable_request(href)
         if response.status_code == 200:
             image_name = directory + str(i) + "image.jpg"
-            f = open(image_name, "wb")
+            f = open( image_name, "wb")
             f.write(response.content)
             i+=1
-    return car_dir
+    return True 
 
-def get_text(href):
+def get_text_html( href ):
+
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
 
-    req = requests.get(href, headers=headers)
+    #req = requests.get(href, headers=headers)
+    req = reliable_request(href)
     html = req.text
     text = html_text.extract_text(html)
+
     return text, html 
 
 
-def grab_data(html):
+def parse_car_page( html ):
     #print(html)
-    price = re.findall('.*\$[. ]*(\d*\,\d*)', html, re.MULTILINE)
+    #price = re.findall('.*\$[. ]*(\d*\,\d*)', html, re.MULTILINE)
+    price = re.findall('ce":"(\d*)', html, re.MULTILINE)
+    print(price)
     if len(price) == 0:
         price = 0
+        return price
     #price = re.findall('987', html, re.MULTILINE)
-    data = [price]# return a list so we can appen d later to it
-    return data 
+    else: return price[1] 
 
 def get_img_links( html, main_link):
 
@@ -66,14 +88,33 @@ def get_img_links( html, main_link):
 
     return im_li
 
-def save_to_csv(first_run,data,file_name):
-        #Save data to csv
-        if first_run:
-            df= pd.DataFrame(data, columns =  ['price','directory'])  # adding a row
-        else:
-            df_new= pd.DataFrame(data, columns = ['price','directory'])  # adding a row
-            df = df.append(df_new)
-        df.to_csv('csv/'+file_name, index = False) # not sure if header should be not false
+def save_to_csv( df, data, file_name ):
+
+    #Save data to csv
+    
+    df = df.append(data, ignore_index = True)# if we don't put ignor index it produces an error
+    
+    df.to_csv('csv/'+file_name, index = False) # not sure if header should be not false
+
+    return df
+
+
+def get_all_hrefs(anchors):
+    # get all all the hypertext references from the anchors on a page
+    hrefs = set() # href stands for hypertext reference 
+    for a in anchors:
+        href = a.get('href') # get the link "a" destination, href specifies the location of a resource, or location of linked resource
+        hrefs.add(href)
+    return hrefs
+
+def write_html_text(html, text, directory):
+    
+    f1 = open(  directory  + 'html.txt','w') 
+    f1.write( html )
+    f1.close()
+    f2 = open(  directory +  'text.txt','w') 
+    f2.write( text )
+
 
 ######### MAIN PAGE ##################
 
@@ -82,38 +123,50 @@ timestamp = time.strftime('%b-%d-%Y_%H%M', t)
 columns = ['date','vin','make','model','price','year','trim','mileage','state','link']
 first_run = True
 file_name = str(page) +'to' + str(last_page) + timestamp + '.csv' 
-for i in range(1734,3000):
+df = pd.DataFrame(columns = ['price', 'directory', 'car_page']) # crating empty df to append to it
+
+for i in range(1,3000): # main pages
     i = i*30
     page = "https://www.autotrader.ca/cars/on/richmond%20hill/?rcp=30&rcs={0}&srt=3&prx=100&prv=Ontario&loc=L4E5A7&hprc=True&wcp=True&sts=New-Used&inMarket=basicSearch".format(i)
-    text, html = get_text(page) 
+    text, html = get_text_html(page) # get html to find all the necessary links 
     soup = BeautifulSoup(html,features="lxml")
-    elms_a = soup.findAll('a', href=re.compile("/a/"))
-    hrefs = set() 
-    for elm in elms_a:
-        href = elm.get('href')
-        hrefs.add(href)
+    anchors = soup.findAll('a', href=re.compile("/a/")) # getting html anchors
+    hrefs = get_all_hrefs(anchors) # get hrefs from anchors
     for href in hrefs:
-        main_link = 'https://www.autotrader.ca'   
-        full_link = main_link + href  
-        print('********* NEW CAR PAGE **********',full_link)
-        text, html = get_text(full_link)
-        data  = grab_data(html)
-        data.append(full_link)
-        # because there are other photos on a page
-        img_hrefs = get_img_links(html,main_link)
-        print(data) # see what is wrong with an error the object is not subscriptable
-        price = data[0][0]#need to read price to pass it to the get_pics
-    
-        print(price)
-        print(img_hrefs)
-        
-        if isinstance(price,type('abc')):
-            car_dir = get_pics(img_hrefs)
-        data = [[data[0][0],car_dir]]
-        
-        save_to_csv(first_run,data,file_name)
-        print(data)
-        first_run = False
-        exit()    
+        url = 'https://www.autotrader.ca'   
+        car_url = url + href  
+        index = df[df.car_page == car_url].index
+        if len(index) > 0: # if there are duplicat urls remove them
+            print('duplicate url', car_url)
+            continue 
+        print('********* pNEW CAR PAGE **********',car_url)
+        uuid4 = str(uuid.uuid4())
+        directory = 'pics2/' + uuid4 + '/'
+        print(directory)
+        if not os.path.isdir(directory):
+            os.mkdir(directory)
+        text, html = get_text_html( car_url ) # get html to find all the necessary links 
+        write_html_text( html, text, directory ) # for every page write html and text into pics/car direcoty 
+        #unique_id = re.findall('io/[^/]*/',car_url)[0]
+        unique_id = re.findall('(?<=/an|/nd|/or|ta/|ia/|ba/|ck/|ec/|io/)[^/]+', car_url)[0] # this takes into consideration if it is Quebec
+        length = df[ df.car_page.str.contains( unique_id ) ].shape[0] 
+        print('was indexed ? ',length, unique_id)
+        if length > 0: # remove already indexed car pages
+            print('this page was indexed')
+            continue
 
+        text, html = get_text_html(car_url)
+        price  = parse_car_page(html)
+        # because there are other photos on a page
+        img_hrefs = get_img_links( html, car_url )
+        print(price)
+        price = str(price).replace(',','') 
+                 
+        #if instance(price,type('abc')): # if there is price than it worse downloading
+        if int(price) > 0 : # if there is price than it worse downloading
+            download_pics(img_hrefs, directory)
+        else: continue
+        car_data = { 'price': price, 'directory': uuid4, 'car_page': car_url} 
+        df = save_to_csv( df, car_data, file_name)
+         
 
