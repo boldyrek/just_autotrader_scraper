@@ -10,6 +10,9 @@ import pandas as pd
 from time import sleep
 import os
 import uuid
+from libs.get_car_features import *
+import time, os, fnmatch, shutil
+
 """
 first need to spoof that we are using some kind of coockies probably
 """
@@ -17,7 +20,8 @@ first need to spoof that we are using some kind of coockies probably
 #last_page = int(sys.argv[2])
 page = 1
 last_page = 3000
-import time, os, fnmatch, shutil
+data_dir = "pic4"
+
 
 def reliable_request(href):
     """
@@ -30,13 +34,13 @@ def reliable_request(href):
     while not done:
         try:
             resp = requests.get( href, headers = headers )
-        #except Exception as e:
         except Exception as e:
            print('connection error', e)
            time.sleep(5)
         else:
            done = True
     return resp
+
 
 def download_pics( img_hrefs, directory ):
     # downloading pics of the car
@@ -46,11 +50,12 @@ def download_pics( img_hrefs, directory ):
         #response = requests.get(href)
         response = reliable_request(href)
         if response.status_code == 200:
-            image_name = directory + str(i) + "image.jpg"
-            f = open( image_name, "wb")
+            image_name = str(i) + "image.jpg"
+            f = open( data_dir + '/' + directory + '/' + image_name, "wb")
             f.write(response.content)
             i+=1
     return True 
+
 
 def get_text_html( href ):
 
@@ -75,6 +80,7 @@ def parse_car_page( html ):
     #price = re.findall('987', html, re.MULTILINE)
     else: return price[1] 
 
+
 def get_img_links( html, main_link):
 
     # get image links from a page, those link that have 1024*786 resolution
@@ -88,6 +94,7 @@ def get_img_links( html, main_link):
 
     return im_li
 
+
 def save_to_csv( df, data, file_name ):
 
     #Save data to csv
@@ -99,7 +106,9 @@ def save_to_csv( df, data, file_name ):
     return df
 
 
-def get_all_hrefs(anchors):
+def get_all_hrefs(html):
+    soup = BeautifulSoup(html,features="lxml")
+    anchors = soup.findAll('a', href=re.compile("/a/")) # getting html anchors
     # get all all the hypertext references from the anchors on a page
     hrefs = set() # href stands for hypertext reference 
     for a in anchors:
@@ -107,66 +116,72 @@ def get_all_hrefs(anchors):
         hrefs.add(href)
     return hrefs
 
+
 def write_html_text(html, text, directory):
     
-    f1 = open(  directory  + 'html.txt','w') 
+    f1 = open( data_dir + "/" + directory  + 'html.txt','w') 
     f1.write( html )
     f1.close()
-    f2 = open(  directory +  'text.txt','w') 
+    f2 = open( data_dir + "/" + directory +  'text.txt','w') 
     f2.write( text )
 
+ 
+def create_and_get_new_directory():
+    dir_name = str(uuid.uuid4())
+    full_dir = data_dir + '/' + dir_name + '/'
+    if not os.path.isdir(full_dir):
+         os.mkdir(full_dir)
+    return dir_name
 
-######### MAIN PAGE ##################
+
+def is_duplicate(df, car_url):
+    index = df[df.car_page == car_url].index
+    if len(index) > 0: # if there are duplicat urls remove them
+       print('duplicate url', car_url)
+       return True
+    return False
+            
+            
+            
+ ###### MAIN PAGE ##################
+
 
 t = time.localtime()
 timestamp = time.strftime('%b-%d-%Y_%H%M', t)
 columns = ['date','vin','make','model','price','year','trim','mileage','state','link']
 first_run = True
 file_name = str(page) +'to' + str(last_page) + timestamp + '.csv' 
+print(file_name)
 df = pd.DataFrame(columns = ['price', 'directory', 'car_page']) # crating empty df to append to it
 
 for i in range(1,3000): # main pages
     i = i*30
     page = "https://www.autotrader.ca/cars/on/richmond%20hill/?rcp=30&rcs={0}&srt=3&prx=100&prv=Ontario&loc=L4E5A7&hprc=True&wcp=True&sts=New-Used&inMarket=basicSearch".format(i)
     text, html = get_text_html(page) # get html to find all the necessary links 
-    soup = BeautifulSoup(html,features="lxml")
-    anchors = soup.findAll('a', href=re.compile("/a/")) # getting html anchors
-    hrefs = get_all_hrefs(anchors) # get hrefs from anchors
+    hrefs = get_all_hrefs(html) # get hrefs from anchors
     for href in hrefs:
         url = 'https://www.autotrader.ca'   
         car_url = url + href  
-        index = df[df.car_page == car_url].index
-        if len(index) > 0: # if there are duplicat urls remove them
-            print('duplicate url', car_url)
-            continue 
+
         print('********* pNEW CAR PAGE **********',car_url)
-        uuid4 = str(uuid.uuid4())
-        directory = 'pics2/' + uuid4 + '/'
+        directory = create_and_get_new_directory()
+        
         print(directory)
-        if not os.path.isdir(directory):
-            os.mkdir(directory)
         text, html = get_text_html( car_url ) # get html to find all the necessary links 
         write_html_text( html, text, directory ) # for every page write html and text into pics/car direcoty 
         #unique_id = re.findall('io/[^/]*/',car_url)[0]
         unique_id = re.findall('(?<=/an|/nd|/or|ta/|ia/|ba/|ck/|ec/|io/)[^/]+', car_url)[0] # this takes into consideration if it is Quebec
-        length = df[ df.car_page.str.contains( unique_id ) ].shape[0] 
-        print('was indexed ? ',length, unique_id)
-        if length > 0: # remove already indexed car pages
-            print('this page was indexed')
-            continue
-
-        text, html = get_text_html(car_url)
+        print('unique_id:',unique_id)
+        if is_duplicate(df, unique_id): continue 
         price  = parse_car_page(html)
         # because there are other photos on a page
-        img_hrefs = get_img_links( html, car_url )
+        if not int(price) > 0: continue # if there is price than it worse downloading
         print(price)
-        price = str(price).replace(',','') 
-                 
-        #if instance(price,type('abc')): # if there is price than it worse downloading
-        if int(price) > 0 : # if there is price than it worse downloading
-            download_pics(img_hrefs, directory)
-        else: continue
-        car_data = { 'price': price, 'directory': uuid4, 'car_page': car_url} 
+        price = str(price).replace(',','')                  
+
+        img_hrefs = get_img_links( html, car_url )
+        download_pics(img_hrefs, directory)
+        car_data = { 'price': price, 'directory': directory, 'car_page': car_url} 
         df = save_to_csv( df, car_data, file_name)
-         
+        exit() 
 
