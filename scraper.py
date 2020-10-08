@@ -69,16 +69,6 @@ def get_text_html( href ):
     return text, html 
 
 
-def parse_car_page( html ):
-    #print(html)
-    #price = re.findall('.*\$[. ]*(\d*\,\d*)', html, re.MULTILINE)
-    price = re.findall('ce":"(\d*)', html, re.MULTILINE)
-    print(price)
-    if len(price) == 0:
-        price = 0
-        return price
-    #price = re.findall('987', html, re.MULTILINE)
-    else: return price[1] 
 
 
 def get_img_links( html, main_link):
@@ -119,30 +109,47 @@ def get_all_hrefs(html):
 
 def write_html_text(html, text, directory):
     
-    f1 = open( data_dir + "/" + directory  + 'html.txt','w') 
+    f1 = open( data_dir + "/" + directory  + "/" +'html.txt','w') 
     f1.write( html )
     f1.close()
-    f2 = open( data_dir + "/" + directory +  'text.txt','w') 
+    f2 = open( data_dir + "/" + directory + "/" + 'text.txt','w') 
     f2.write( text )
 
- 
-def create_and_get_new_directory():
+def new_dir():
     dir_name = str(uuid.uuid4())
+    return dir_name
+ 
+def create_new_directory( dir_name):
     full_dir = data_dir + '/' + dir_name + '/'
     if not os.path.isdir(full_dir):
          os.mkdir(full_dir)
-    return dir_name
 
 
-def is_duplicate(df, car_url):
-    index = df[df.car_page == car_url].index
+def is_duplicate(df, car_data):
+    index = df[ (df.year == car_data.year.values[0])&\
+                (df.make == car_data.make.values[0])& (df.model == car_data.model.values[0])&\
+              (df.kms == car_data.kms.values[0])].index
     if len(index) > 0: # if there are duplicat urls remove them
-       print('duplicate url', car_url)
+       print('duplicate url ', car_url, 'kms', car_data.kms.values[0] ) # we dont' consider cars with zero kms because it can produce duplicates
        return True
     return False
             
-            
-            
+def get_car_data_df( unique_id, year, make, model, price, kms, directory, car_url):
+    car_data = { 'unique_id' : unique_id, 'year': year, 'make' : make, 'model' : model,  'price': price, 'kms' : kms,  'directory': directory, 'url': car_url} 
+    car_data_df = pd.DataFrame([car_data])
+    return car_data_df
+
+def is_good_car_data(year, make , model, kms, price):
+    
+    if not isinstance(kms,int) or not isinstance(price,int) : 
+        print('not instance')
+        return False # km can be none or int , we need to see if they are more then 20 
+    if year == None or price < 500 or make == None or model == None or  kms < 20 :
+        
+        return False
+    return True
+    
+             
  ###### MAIN PAGE ##################
 
 
@@ -152,7 +159,7 @@ columns = ['date','vin','make','model','price','year','trim','mileage','state','
 first_run = True
 file_name = str(page) +'to' + str(last_page) + timestamp + '.csv' 
 print(file_name)
-df = pd.DataFrame(columns = ['price', 'directory', 'car_page']) # crating empty df to append to it
+df = pd.DataFrame(columns = ["unique_id", "year", "make", "model" , "price", "kms", "directory", "car_url"]) # crating empty df to append to it
 
 for i in range(1,3000): # main pages
     i = i*30
@@ -164,24 +171,26 @@ for i in range(1,3000): # main pages
         car_url = url + href  
 
         print('********* pNEW CAR PAGE **********',car_url)
-        directory = create_and_get_new_directory()
+        directory = new_dir()
         
         print(directory)
         text, html = get_text_html( car_url ) # get html to find all the necessary links 
+        unique_id = get_unique_id( car_url )
+        kms = get_kms( html )
+        make, model = get_make_model( html )
+        year = get_year( html ) 
+        price = get_car_price( html )
+        if not is_good_car_data(year, make , model, kms, price):
+            print('Bad car:', year, make , model, kms, price)
+            continue
+        car_data = get_car_data_df( unique_id, year, make, model, price, kms, directory, car_url)
+        print( car_data[['unique_id', 'year', 'make', 'model', 'price', 'kms']])           
+        if is_duplicate(df, car_data ):
+            continue 
+        create_new_directory( directory)
         write_html_text( html, text, directory ) # for every page write html and text into pics/car direcoty 
-        #unique_id = re.findall('io/[^/]*/',car_url)[0]
-        unique_id = re.findall('(?<=/an|/nd|/or|ta/|ia/|ba/|ck/|ec/|io/)[^/]+', car_url)[0] # this takes into consideration if it is Quebec
-        print('unique_id:',unique_id)
-        if is_duplicate(df, unique_id): continue 
-        price  = parse_car_page(html)
-        # because there are other photos on a page
-        if not int(price) > 0: continue # if there is price than it worse downloading
-        print(price)
-        price = str(price).replace(',','')                  
-
         img_hrefs = get_img_links( html, car_url )
         download_pics(img_hrefs, directory)
-        car_data = { 'price': price, 'directory': directory, 'car_page': car_url} 
         df = save_to_csv( df, car_data, file_name)
-        exit() 
+
 
