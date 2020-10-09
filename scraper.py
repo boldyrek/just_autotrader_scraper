@@ -12,7 +12,7 @@ import os
 import uuid
 from libs.get_car_features import *
 import time, os, fnmatch, shutil
-
+import numpy as np
 """
 first need to spoof that we are using some kind of coockies probably
 """
@@ -20,7 +20,7 @@ first need to spoof that we are using some kind of coockies probably
 #last_page = int(sys.argv[2])
 page = 1
 last_page = 3000
-data_dir = "pic4"
+data_dir = "pics6"
 
 
 def reliable_request(href):
@@ -45,7 +45,10 @@ def reliable_request(href):
 def download_pics( img_hrefs, directory ):
     # downloading pics of the car
     i=0
-    for href in img_hrefs:
+    twelve_images = np.random.choice(img_hrefs,12, replace = True)
+    max_13_images = [img_hrefs[0]] + list(set(twelve_images))
+    
+    for href in max_13_images:
         print('downloanding :', href)
         #response = requests.get(href)
         response = reliable_request(href)
@@ -135,7 +138,7 @@ def is_duplicate(df, car_data):
     return False
             
 def get_car_data_df( unique_id, year, make, model, price, kms, directory, car_url):
-    car_data = { 'unique_id' : unique_id, 'year': year, 'make' : make, 'model' : model,  'price': price, 'kms' : kms,  'directory': directory, 'url': car_url} 
+    car_data = { 'unique_id' : unique_id, 'year': year, 'make' : make, 'model' : model,  'price': price, 'kms' : kms,  'directory': directory, 'car_url': car_url} 
     car_data_df = pd.DataFrame([car_data])
     return car_data_df
 
@@ -148,8 +151,28 @@ def is_good_car_data(year, make , model, kms, price):
         
         return False
     return True
-    
+
+def is_unique_id_used_before(df, unique_id):
+    index = df[df.unique_id == unique_id].index
+    if len(index) > 0: # if there are duplicat urls remove them
+        print('duplicated unique_id', unique_id)
+        return True
+    return False
+
+def is_url_used_before(df, car_url):
+    index = df[df.car_url == car_url].index
+    if len(index) > 0: # if there are duplicat urls remove them
+        print('duplicated car_url', car_url)
+        return True
+    return False
              
+def get_clean_url(url, unique_id):
+    """
+    cut url after unique_id
+    """
+    search = f"(.*{unique_id})"
+    return re.findall(search,url)[0]
+
  ###### MAIN PAGE ##################
 
 
@@ -164,18 +187,19 @@ df = pd.DataFrame(columns = ["unique_id", "year", "make", "model" , "price", "km
 for i in range(1,3000): # main pages
     i = i*30
     page = "https://www.autotrader.ca/cars/on/richmond%20hill/?rcp=30&rcs={0}&srt=3&prx=100&prv=Ontario&loc=L4E5A7&hprc=True&wcp=True&sts=New-Used&inMarket=basicSearch".format(i)
+    print( " NEXT PAGE ", 1, page)
     text, html = get_text_html(page) # get html to find all the necessary links 
     hrefs = get_all_hrefs(html) # get hrefs from anchors
     for href in hrefs:
         url = 'https://www.autotrader.ca'   
         car_url = url + href  
-
-        print('********* pNEW CAR PAGE **********',car_url)
-        directory = new_dir()
-        
-        print(directory)
-        text, html = get_text_html( car_url ) # get html to find all the necessary links 
         unique_id = get_unique_id( car_url )
+        car_url = get_clean_url(car_url, unique_id)
+        print('********* NEW CAR PAGE **********',car_url)
+        directory = new_dir()
+        print(directory)
+        if is_unique_id_used_before(df, unique_id) == True or is_url_used_before(df, car_url) == True: continue # need to be checked before we go to car url 
+        text, html = get_text_html( car_url ) # get html to find all the necessary links 
         kms = get_kms( html )
         make, model = get_make_model( html )
         year = get_year( html ) 
@@ -190,7 +214,8 @@ for i in range(1,3000): # main pages
         create_new_directory( directory)
         write_html_text( html, text, directory ) # for every page write html and text into pics/car direcoty 
         img_hrefs = get_img_links( html, car_url )
-        download_pics(img_hrefs, directory)
+        if len(img_hrefs) > 0:
+            download_pics(img_hrefs, directory)
         df = save_to_csv( df, car_data, file_name)
 
 
