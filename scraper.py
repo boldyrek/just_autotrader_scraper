@@ -20,7 +20,7 @@ first need to spoof that we are using some kind of coockies probably
 #last_page = int(sys.argv[2])
 page = 1
 last_page = 3000
-data_dir = "pics6"
+data_dir = "pics"
 
 
 def reliable_request(href):
@@ -31,16 +31,38 @@ def reliable_request(href):
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
 
     done = False
+    time_sleep = 5
     while not done:
         try:
             resp = requests.get( href, headers = headers )
         except Exception as e:
            print('connection error', e)
-           time.sleep(5)
+           time.sleep(time_sleep)
+           time_sleep += 3 
         else:
            done = True
+    print(resp)
+    
     return resp
 
+def get_car_hrefs_reliably( main_href ):
+    """
+    catch all connection errors wait and try again
+    return response
+    """
+    exit = False
+    time_sleep = 5
+    while not exit:
+        text, html = get_text_html( main_href )
+        car_hrefs = get_all_hrefs(html)
+        if len(car_hrefs) == 0:
+            print('trying get img hrefs one more time')
+            sleep(time_sleep)
+            time_sleep+= 3
+            exit = False
+        else:
+            exit = True
+    return car_hrefs
 
 def download_pics( img_hrefs, directory ):
     # downloading pics of the car
@@ -94,7 +116,8 @@ def save_to_csv( df, data, file_name ):
     
     df = df.append(data, ignore_index = True)# if we don't put ignor index it produces an error
     
-    df.to_csv('csv/'+file_name, index = False) # not sure if header should be not false
+    #df.to_csv('csv/'+file_name, index = False) # not sure if header should be not false
+    df.to_csv('csv/cars.csv', index = False) # not sure if header should be not false
 
     return df
 
@@ -174,7 +197,7 @@ def get_clean_url(url, unique_id):
     return re.findall(search,url)[0]
 
  ###### MAIN PAGE ##################
-
+import os
 
 t = time.localtime()
 timestamp = time.strftime('%b-%d-%Y_%H%M', t)
@@ -182,24 +205,31 @@ columns = ['date','vin','make','model','price','year','trim','mileage','state','
 first_run = True
 file_name = str(page) +'to' + str(last_page) + timestamp + '.csv' 
 print(file_name)
-df = pd.DataFrame(columns = ["unique_id", "year", "make", "model" , "price", "kms", "directory", "car_url"]) # crating empty df to append to it
-
-for i in range(1,3000): # main pages
+if not 'cars.csv' in os.listdir("csv"):
+    df = pd.DataFrame(columns = ["unique_id", "year", "make", "model" , "price", "kms", "directory", "car_url"]) # crating empty df to append to it
+else:
+    print("reading saved csv")
+    df = pd.read_csv("csv/cars.csv")
+for i in range(10,3000): # main pages
+    print( " NEXT MAJOR PAGE ", i)
     i = i*30
     page = "https://www.autotrader.ca/cars/on/richmond%20hill/?rcp=30&rcs={0}&srt=3&prx=100&prv=Ontario&loc=L4E5A7&hprc=True&wcp=True&sts=New-Used&inMarket=basicSearch".format(i)
-    print( " NEXT PAGE ", 1, page)
-    text, html = get_text_html(page) # get html to find all the necessary links 
-    hrefs = get_all_hrefs(html) # get hrefs from anchors
-    for href in hrefs:
+    print("major page link", page)
+    car_hrefs = get_car_hrefs_reliably(page) 
+        
+    print('hrefs on a page', len(car_hrefs))
+    for href in car_hrefs:
         url = 'https://www.autotrader.ca'   
-        car_url = url + href  
-        unique_id = get_unique_id( car_url )
-        car_url = get_clean_url(car_url, unique_id)
-        print('********* NEW CAR PAGE **********',car_url)
+        car_url_dirty = url + href  
+        unique_id = get_unique_id( car_url_dirty )
+        car_url = get_clean_url(car_url_dirty, unique_id)
+        print('********* NEW CAR  **********',car_url, car_url_dirty)
         directory = new_dir()
         print(directory)
         if is_unique_id_used_before(df, unique_id) == True or is_url_used_before(df, car_url) == True: continue # need to be checked before we go to car url 
         text, html = get_text_html( car_url ) # get html to find all the necessary links 
+        if 'The vehicle you are looking for is no longer available.' in text:
+            continue
         kms = get_kms( html )
         make, model = get_make_model( html )
         year = get_year( html ) 
@@ -217,5 +247,4 @@ for i in range(1,3000): # main pages
         if len(img_hrefs) > 0:
             download_pics(img_hrefs, directory)
         df = save_to_csv( df, car_data, file_name)
-
 

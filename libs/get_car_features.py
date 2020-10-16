@@ -24,6 +24,9 @@ def get_make_model(html):
 
 def get_unique_id(car_url):
     unique_id = re.findall('(?<=/an|/nd|/or|ta/|ia/|ba/|ck/|ec/|io/)[^/]+', car_url)[0] # this 
+    #unique_id = re.findall('(.*)\?showcpo', car_url)[0] 
+    #print('car_url in get unique_id: ', car_url)
+    #unique_id = re.findall('([\d_]*)/\?showcpo', car_url)[0]
     return unique_id
 
 
