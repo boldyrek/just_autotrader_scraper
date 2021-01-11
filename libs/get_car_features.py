@@ -41,3 +41,12 @@ def get_car_price( html ):
     #price = re.findall('987', html, re.MULTILINE)
     else: return int(str(price[1]).replace(',','')) 
     
+def get_drivetrain(html): 
+    """
+    Not used in current impelementation
+    """
+    drivetrain = re.findall('Drivetrain","value":"([\w]*)',html)
+    #kilometers_clean = kilometers.remove(',') 
+    if len(drivetrain) == 0:
+        return -1
+    return drivetrain[0]
