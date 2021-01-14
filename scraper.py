@@ -13,6 +13,7 @@ import uuid
 from libs.get_car_features import *
 import time, os, fnmatch, shutil
 import numpy as np
+from datetime import datetime
 """
 first need to spoof that we are using some kind of coockies probably
 """
@@ -142,7 +143,7 @@ def write_html_text(html, text, directory):
     f2.write( text )
 
 def new_dir():
-    dir_name = str(uuid.uuid4())
+    dir_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
     return dir_name
  
 def create_new_directory( dir_name):
